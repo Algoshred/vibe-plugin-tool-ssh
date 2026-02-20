@@ -1,0 +1,78 @@
+{
+  "name": "@burdenoff/vibe-plugin-ssh",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint ./src",
+    "format": "npx prettier . --write",
+    "format:check": "npx prettier . --check",
+    "type:check": "tsc --noEmit",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean",
+    "prepublishOnly": "npm run build",
+    "sanity": "npm run format:check && npm run lint && npm run type:check && npm run build"
+  },
+  "keywords": [
+    "vibecontrols",
+    "vibe",
+    "vibe-plugin",
+    "ssh",
+    "port-forward",
+    "remote-development"
+  ],
+  "author": {
+    "name": "Vignesh T.V",
+    "email": "vignesh@burdenoff.com",
+    "url": "https://github.com/tvvignesh"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "description": "SSH connections & port forwarding plugin for VibeControls Agent",
+  "dependencies": {
+    "ssh2": "^1.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.11",
+    "@types/ssh2": "^1.15.5",
+    "commander": "^14.0.3",
+    "eslint": "^9.30.1",
+    "fastify": "^5.7.4",
+    "prettier": "^3.6.2",
+    "rimraf": "^6.0.1",
+    "socket.io": "^4.8.3",
+    "typescript": "^5.8.3"
+  },
+  "peerDependencies": {
+    "@burdenoff/vibe-agent": ">=1.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@burdenoff/vibe-agent": {
+      "optional": true
+    }
+  },
+  "trustedDependencies": [
+    "cpu-features",
+    "ssh2"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/algoshred/vibe-plugin-ssh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/algoshred/vibe-plugin-ssh/issues"
+  },
+  "homepage": "https://vibecontrols.com",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ]
+}
