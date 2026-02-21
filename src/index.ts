@@ -19,6 +19,8 @@ export interface VibePlugin {
   name: string;
   version: string;
   description?: string;
+  cliCommand?: string;
+  apiPrefix?: string;
   onCliSetup?: (program: Command) => void | Promise<void>;
   onServerStart?: (app: FastifyInstance) => void | Promise<void>;
   onServerStop?: (app: FastifyInstance) => void | Promise<void>;
@@ -28,6 +30,8 @@ export const vibePlugin: VibePlugin = {
   name: "ssh",
   version: "1.0.0",
   description: "SSH connections & port forwarding for VibeControls Agent",
+  cliCommand: "ssh",
+  apiPrefix: "/api/ssh",
 
   async onServerStart(app: FastifyInstance) {
     // Dynamically import ssh2 — this is the whole point of the plugin:
@@ -38,7 +42,9 @@ export const vibePlugin: VibePlugin = {
     await app.register(sshRoutes, { prefix: "/api/ssh" });
     await app.register(portForwardRoutes, { prefix: "/api/port-forward" });
 
-    console.log("  🔌 Plugin 'ssh' registered routes: /api/ssh, /api/port-forward");
+    console.log(
+      "  🔌 Plugin 'ssh' registered routes: /api/ssh, /api/port-forward",
+    );
   },
 
   onCliSetup(program: Command) {
