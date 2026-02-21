@@ -31,18 +31,18 @@ vibe plugin list  # verify it shows up
 
 Once installed, the plugin registers these routes on the agent:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/ssh/connections` | List all SSH connections |
-| POST | `/api/ssh/connections` | Create a new SSH connection |
-| POST | `/api/ssh/execute` | Execute a remote command |
-| POST | `/api/ssh/test/:id` | Test an SSH connection |
-| DELETE | `/api/ssh/connections/:id` | Delete a connection |
-| GET | `/api/port-forward/` | List all port forwards |
-| POST | `/api/port-forward/` | Create a port forward |
-| POST | `/api/port-forward/:id/start` | Start forwarding |
-| POST | `/api/port-forward/:id/stop` | Stop forwarding |
-| DELETE | `/api/port-forward/:id` | Delete a forward |
+| Method | Path                          | Description                 |
+| ------ | ----------------------------- | --------------------------- |
+| GET    | `/api/ssh/connections`        | List all SSH connections    |
+| POST   | `/api/ssh/connections`        | Create a new SSH connection |
+| POST   | `/api/ssh/execute`            | Execute a remote command    |
+| POST   | `/api/ssh/test/:id`           | Test an SSH connection      |
+| DELETE | `/api/ssh/connections/:id`    | Delete a connection         |
+| GET    | `/api/port-forward/`          | List all port forwards      |
+| POST   | `/api/port-forward/`          | Create a port forward       |
+| POST   | `/api/port-forward/:id/start` | Start forwarding            |
+| POST   | `/api/port-forward/:id/stop`  | Stop forwarding             |
+| DELETE | `/api/port-forward/:id`       | Delete a forward            |
 
 ## CLI Commands
 

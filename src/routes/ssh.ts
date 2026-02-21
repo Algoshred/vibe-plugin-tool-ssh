@@ -1,251 +1,321 @@
-import { FastifyPluginAsync } from "fastify";
+/**
+ * SSH connection management routes (Elysia + KV storage).
+ *
+ * Namespace: "ssh"
+ * Keys:
+ *   "connections" → JSON array of SSHConnection objects
+ */
+
+import { Elysia } from "elysia";
 import crypto from "node:crypto";
 import { Client } from "ssh2";
-import { readFileSync } from "fs";
+import { readFileSync } from "node:fs";
+import type {
+  HostServices,
+  SSHConnection,
+  CreateConnectionBody,
+  ExecuteCommandBody,
+} from "../types.js";
 
-interface CreateConnectionBody {
-  serverName: string;
-  host: string;
-  port?: number;
-  username: string;
+// ---------------------------------------------------------------------------
+// KV helpers
+// ---------------------------------------------------------------------------
+
+async function getAllConnections(
+  storage: HostServices["storage"],
+): Promise<SSHConnection[]> {
+  const raw = await storage.get("ssh", "connections");
+  if (!raw) return [];
+  return JSON.parse(raw) as SSHConnection[];
+}
+
+async function getConnectionById(
+  storage: HostServices["storage"],
+  id: string,
+): Promise<SSHConnection | undefined> {
+  const all = await getAllConnections(storage);
+  return all.find((c) => c.id === id);
+}
+
+async function saveConnections(
+  storage: HostServices["storage"],
+  connections: SSHConnection[],
+): Promise<void> {
+  await storage.set("ssh", "connections", JSON.stringify(connections));
+}
+
+// ---------------------------------------------------------------------------
+// Sanitise a connection for API responses (strip secrets)
+// ---------------------------------------------------------------------------
+
+function sanitise(
+  conn: SSHConnection,
+): Omit<SSHConnection, "password" | "privateKeyPath"> & {
   privateKeyPath?: string;
-  password?: string;
+} {
+  return {
+    ...conn,
+    password: undefined,
+    privateKeyPath: conn.privateKeyPath ? "***" : undefined,
+  };
 }
 
-interface ExecuteCommandBody {
-  connectionId: string;
-  command: string;
-  workingDirectory?: string;
+// ---------------------------------------------------------------------------
+// Build an ssh2 connect config from a stored connection
+// ---------------------------------------------------------------------------
+
+function buildConnectConfig(conn: SSHConnection) {
+  const cfg: {
+    host: string;
+    port: number;
+    username: string;
+    readyTimeout?: number;
+    privateKey?: Buffer;
+    password?: string;
+  } = {
+    host: conn.host,
+    port: conn.port,
+    username: conn.username,
+  };
+
+  if (conn.privateKeyPath) {
+    cfg.privateKey = readFileSync(conn.privateKeyPath);
+  } else if (conn.password) {
+    cfg.password = conn.password;
+  }
+
+  return cfg;
 }
 
-export const sshRoutes: FastifyPluginAsync = async (fastify) => {
-  // Get all SSH connections
-  fastify.get("/connections", async (_request, _reply) => {
-    const connections = fastify.db.getAllSSHConnections();
-    const safeConnections = connections.map((conn: Record<string, unknown>) => ({
-      ...conn,
-      password: undefined,
-      privateKeyPath: conn.privateKeyPath ? "***" : undefined,
-    }));
-    return { connections: safeConnections };
-  });
+// ---------------------------------------------------------------------------
+// Route factory
+// ---------------------------------------------------------------------------
 
-  // Create SSH connection config
-  fastify.post("/connections", async (request, reply) => {
-    const {
-      serverName,
-      host,
-      port = 22,
-      username,
-      privateKeyPath,
-      password,
-    } = request.body as CreateConnectionBody;
+export function createSSHRoutes(hostServices: HostServices) {
+  const { storage, eventBus } = hostServices;
 
-    try {
-      const connection = fastify.db.createSSHConnection({
-        id: crypto.randomUUID(),
+  return new Elysia({ prefix: "/api/ssh" })
+
+    // -----------------------------------------------------------------------
+    // GET /api/ssh/connections — list all saved SSH connections
+    // -----------------------------------------------------------------------
+    .get("/connections", async () => {
+      const connections = await getAllConnections(storage);
+      return { connections: connections.map(sanitise) };
+    })
+
+    // -----------------------------------------------------------------------
+    // POST /api/ssh/connections — create a new SSH connection config
+    // -----------------------------------------------------------------------
+    .post("/connections", async ({ body, set }) => {
+      const {
         serverName,
         host,
-        port,
+        port = 22,
         username,
         privateKeyPath,
         password,
-      });
+      } = body as CreateConnectionBody;
 
-      return {
-        connection: {
-          ...connection,
-          password: undefined,
-          privateKeyPath: connection.privateKeyPath ? "***" : undefined,
-        },
-      };
-    } catch (error) {
-      return reply.code(500).send({
-        error: "Failed to create SSH connection",
-        details: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  });
+      try {
+        const connections = await getAllConnections(storage);
 
-  // Execute command on remote server
-  fastify.post("/execute", async (request, reply) => {
-    const { connectionId, command, workingDirectory } =
-      request.body as ExecuteCommandBody;
+        const newConn: SSHConnection = {
+          id: crypto.randomUUID(),
+          serverName,
+          host,
+          port,
+          username,
+          privateKeyPath,
+          password,
+          createdAt: new Date().toISOString(),
+        };
 
-    try {
-      const connectionConfig = fastify.db.getSSHConnection(connectionId);
-      if (!connectionConfig) {
-        return reply.code(404).send({ error: "SSH connection not found" });
+        connections.push(newConn);
+        await saveConnections(storage, connections);
+
+        return { connection: sanitise(newConn) };
+      } catch (error) {
+        set.status = 500;
+        return {
+          error: "Failed to create SSH connection",
+          details: error instanceof Error ? error.message : "Unknown error",
+        };
       }
+    })
 
-      const conn = new Client();
-      let output = "";
-      let errorOutput = "";
+    // -----------------------------------------------------------------------
+    // POST /api/ssh/execute — execute a command on a remote server
+    // -----------------------------------------------------------------------
+    .post("/execute", async ({ body, set }) => {
+      const { connectionId, command, workingDirectory } =
+        body as ExecuteCommandBody;
 
-      return new Promise((resolve) => {
-        conn.on("ready", () => {
-          const fullCommand = workingDirectory
-            ? `cd ${workingDirectory} && ${command}`
-            : command;
+      try {
+        const connectionConfig = await getConnectionById(
+          storage,
+          connectionId,
+        );
+        if (!connectionConfig) {
+          set.status = 404;
+          return { error: "SSH connection not found" };
+        }
 
-          conn.exec(fullCommand, (err, stream) => {
-            if (err) {
-              conn.end();
-              return resolve(
-                reply.code(500).send({
+        const conn = new Client();
+        let output = "";
+        let errorOutput = "";
+
+        return new Promise((resolve) => {
+          conn.on("ready", () => {
+            const fullCommand = workingDirectory
+              ? `cd ${workingDirectory} && ${command}`
+              : command;
+
+            conn.exec(fullCommand, (err, stream) => {
+              if (err) {
+                conn.end();
+                set.status = 500;
+                resolve({
                   error: "Failed to execute command",
                   details: err.message,
-                }),
-              );
-            }
+                });
+                return;
+              }
 
-            stream.on("close", (code: number) => {
-              conn.end();
-              resolve({
-                output,
-                errorOutput,
-                exitCode: code,
-                success: code === 0,
+              stream.on("close", (code: number) => {
+                conn.end();
+                resolve({
+                  output,
+                  errorOutput,
+                  exitCode: code,
+                  success: code === 0,
+                });
               });
-            });
 
-            stream.on("data", (data: Buffer) => {
-              output += data.toString();
-              fastify.io.emit("ssh:output", {
-                connectionId,
-                data: data.toString(),
-                type: "stdout",
+              stream.on("data", (data: Buffer) => {
+                output += data.toString();
+                if (eventBus) {
+                  eventBus.emit("ssh:output", {
+                    connectionId,
+                    data: data.toString(),
+                    type: "stdout",
+                  });
+                } else {
+                  console.log(
+                    `[ssh:stdout] ${connectionId}: ${data.toString().trimEnd()}`,
+                  );
+                }
               });
-            });
 
-            stream.stderr.on("data", (data: Buffer) => {
-              errorOutput += data.toString();
-              fastify.io.emit("ssh:output", {
-                connectionId,
-                data: data.toString(),
-                type: "stderr",
+              stream.stderr.on("data", (data: Buffer) => {
+                errorOutput += data.toString();
+                if (eventBus) {
+                  eventBus.emit("ssh:output", {
+                    connectionId,
+                    data: data.toString(),
+                    type: "stderr",
+                  });
+                } else {
+                  console.error(
+                    `[ssh:stderr] ${connectionId}: ${data.toString().trimEnd()}`,
+                  );
+                }
               });
             });
           });
-        });
 
-        conn.on("error", (err) => {
-          resolve(
-            reply.code(500).send({
+          conn.on("error", (err) => {
+            set.status = 500;
+            resolve({
               error: "SSH connection failed",
               details: err.message,
-            }),
-          );
+            });
+          });
+
+          conn.connect(buildConnectConfig(connectionConfig));
         });
-
-        const connectConfig: {
-          host: string;
-          port: number;
-          username: string;
-          privateKey?: Buffer;
-          password?: string;
-        } = {
-          host: connectionConfig.host,
-          port: connectionConfig.port,
-          username: connectionConfig.username,
+      } catch (error) {
+        set.status = 500;
+        return {
+          error: "Failed to execute SSH command",
+          details: error instanceof Error ? error.message : "Unknown error",
         };
+      }
+    })
 
-        if (connectionConfig.privateKeyPath) {
-          connectConfig.privateKey = readFileSync(
-            connectionConfig.privateKeyPath,
-          );
-        } else if (connectionConfig.password) {
-          connectConfig.password = connectionConfig.password;
+    // -----------------------------------------------------------------------
+    // POST /api/ssh/test/:connectionId — test an SSH connection
+    // -----------------------------------------------------------------------
+    .post("/test/:connectionId", async ({ params, set }) => {
+      const { connectionId } = params;
+
+      try {
+        const connectionConfig = await getConnectionById(
+          storage,
+          connectionId,
+        );
+        if (!connectionConfig) {
+          set.status = 404;
+          return { error: "SSH connection not found" };
         }
 
-        conn.connect(connectConfig);
-      });
-    } catch (error) {
-      return reply.code(500).send({
-        error: "Failed to execute SSH command",
-        details: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  });
+        const conn = new Client();
 
-  // Test SSH connection
-  fastify.post("/test/:connectionId", async (request, reply) => {
-    const { connectionId } = request.params as { connectionId: string };
+        return new Promise((resolve) => {
+          conn.on("ready", () => {
+            conn.end();
+            resolve({ success: true, message: "Connection successful" });
+          });
 
-    try {
-      const connectionConfig = fastify.db.getSSHConnection(connectionId);
-      if (!connectionConfig) {
-        return reply.code(404).send({ error: "SSH connection not found" });
-      }
-
-      const conn = new Client();
-
-      return new Promise((resolve) => {
-        conn.on("ready", () => {
-          conn.end();
-          resolve({ success: true, message: "Connection successful" });
-        });
-
-        conn.on("error", (err) => {
-          resolve(
-            reply.code(500).send({
+          conn.on("error", (err) => {
+            set.status = 500;
+            resolve({
               success: false,
               error: "Connection failed",
               details: err.message,
-            }),
-          );
+            });
+          });
+
+          conn.connect({
+            ...buildConnectConfig(connectionConfig),
+            readyTimeout: 10_000,
+          });
         });
-
-        const connectConfig: {
-          host: string;
-          port: number;
-          username: string;
-          readyTimeout: number;
-          privateKey?: Buffer;
-          password?: string;
-        } = {
-          host: connectionConfig.host,
-          port: connectionConfig.port,
-          username: connectionConfig.username,
-          readyTimeout: 10000,
+      } catch (error) {
+        set.status = 500;
+        return {
+          success: false,
+          error: "Failed to test connection",
+          details: error instanceof Error ? error.message : "Unknown error",
         };
+      }
+    })
 
-        if (connectionConfig.privateKeyPath) {
-          connectConfig.privateKey = readFileSync(
-            connectionConfig.privateKeyPath,
-          );
-        } else if (connectionConfig.password) {
-          connectConfig.password = connectionConfig.password;
+    // -----------------------------------------------------------------------
+    // DELETE /api/ssh/connections/:id — remove a saved SSH connection
+    // -----------------------------------------------------------------------
+    .delete("/connections/:id", async ({ params, set }) => {
+      const { id } = params;
+
+      try {
+        const connections = await getAllConnections(storage);
+        const idx = connections.findIndex((c) => c.id === id);
+
+        if (idx === -1) {
+          set.status = 404;
+          return { error: "Connection not found" };
         }
 
-        conn.connect(connectConfig);
-      });
-    } catch (error) {
-      return reply.code(500).send({
-        success: false,
-        error: "Failed to test connection",
-        details: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  });
+        connections.splice(idx, 1);
+        await saveConnections(storage, connections);
 
-  // Delete SSH connection
-  fastify.delete("/connections/:id", async (request, reply) => {
-    const { id } = request.params as { id: string };
-
-    try {
-      const connection = fastify.db.getSSHConnection(id);
-      if (!connection) {
-        return reply.code(404).send({ error: "Connection not found" });
+        return { success: true };
+      } catch (error) {
+        set.status = 500;
+        return {
+          error: "Failed to delete connection",
+          details: error instanceof Error ? error.message : "Unknown error",
+        };
       }
-
-      fastify.db.deleteSSHConnection(id);
-      return { success: true };
-    } catch (error) {
-      return reply.code(500).send({
-        error: "Failed to delete connection",
-        details: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  });
-};
+    });
+}
