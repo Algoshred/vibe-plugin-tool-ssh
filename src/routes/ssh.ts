@@ -53,9 +53,9 @@ function sanitise(
 ): Omit<SSHConnection, "password" | "privateKeyPath"> & {
   privateKeyPath?: string;
 } {
+  const { password: _pw, privateKeyPath: _pk, ...rest } = conn;
   return {
-    ...conn,
-    password: undefined,
+    ...rest,
     privateKeyPath: conn.privateKeyPath ? "***" : undefined,
   };
 }
