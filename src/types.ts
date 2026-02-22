@@ -60,6 +60,9 @@ export interface VibePlugin {
   name: string;
   version: string;
   description?: string;
+  tags?: Array<
+    "backend" | "frontend" | "cli" | "provider" | "adapter" | "integration"
+  >;
   cliCommand?: string;
   apiPrefix?: string;
   onCliSetup?: (program: Command) => void | Promise<void>;

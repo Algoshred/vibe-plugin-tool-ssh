@@ -40,6 +40,7 @@ export const vibePlugin: VibePlugin = {
   name: "ssh",
   version: "2.0.0",
   description: "SSH connection management and port forwarding",
+  tags: ["backend", "cli", "integration"],
   cliCommand: "ssh",
   apiPrefix: "/api/ssh",
 
