@@ -48,9 +48,8 @@ export const vibePlugin: VibePlugin = {
     // Dynamically import route modules — ssh2 native deps only load when
     // the plugin is actually activated.
     const { createSSHRoutes } = await import("./routes/ssh.js");
-    const { createPortForwardRoutes, cleanupAllTunnels } = await import(
-      "./routes/port-forward.js"
-    );
+    const { createPortForwardRoutes, cleanupAllTunnels } =
+      await import("./routes/port-forward.js");
 
     app.use(createSSHRoutes(hostServices));
     app.use(createPortForwardRoutes(hostServices));

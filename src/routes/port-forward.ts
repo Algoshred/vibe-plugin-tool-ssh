@@ -8,10 +8,8 @@
  */
 
 import { Elysia } from "elysia";
-import crypto from "node:crypto";
 import { Client } from "ssh2";
 import { createServer, type Server } from "node:net";
-import { readFileSync } from "node:fs";
 import type {
   HostServices,
   SSHConnection,
@@ -23,10 +21,7 @@ import type {
 // In-memory map of currently active tunnels
 // ---------------------------------------------------------------------------
 
-const activeConnections = new Map<
-  string,
-  { client: Client; server: Server }
->();
+const activeConnections = new Map<string, { client: Client; server: Server }>();
 
 // ---------------------------------------------------------------------------
 // KV helpers – connections (read-only from this module)
@@ -105,7 +100,7 @@ async function deletePortForwardById(
 // Build an ssh2 connect config from a stored connection
 // ---------------------------------------------------------------------------
 
-function buildConnectConfig(conn: SSHConnection) {
+async function buildConnectConfig(conn: SSHConnection) {
   const cfg: {
     host: string;
     port: number;
@@ -119,7 +114,8 @@ function buildConnectConfig(conn: SSHConnection) {
   };
 
   if (conn.privateKeyPath) {
-    cfg.privateKey = readFileSync(conn.privateKeyPath);
+    const file = Bun.file(conn.privateKeyPath);
+    cfg.privateKey = Buffer.from(await file.arrayBuffer());
   } else if (conn.password) {
     cfg.password = conn.password;
   }
@@ -146,257 +142,260 @@ export function cleanupAllTunnels(): void {
 export function createPortForwardRoutes(hostServices: HostServices) {
   const { storage, eventBus } = hostServices;
 
-  return new Elysia({ prefix: "/api/port-forward" })
+  return (
+    new Elysia({ prefix: "/api/port-forward" })
 
-    // -----------------------------------------------------------------------
-    // GET /api/port-forward — list all port forwards
-    // -----------------------------------------------------------------------
-    .get("/", async () => {
-      const portForwards = await getAllPortForwards(storage);
-      return { portForwards };
-    })
+      // -----------------------------------------------------------------------
+      // GET /api/port-forward — list all port forwards
+      // -----------------------------------------------------------------------
+      .get("/", async () => {
+        const portForwards = await getAllPortForwards(storage);
+        return { portForwards };
+      })
 
-    // -----------------------------------------------------------------------
-    // POST /api/port-forward — create a new port forward config
-    // -----------------------------------------------------------------------
-    .post("/", async ({ body, set }) => {
-      const { localPort, remoteHost, remotePort, connectionId } =
-        body as CreatePortForwardBody;
+      // -----------------------------------------------------------------------
+      // POST /api/port-forward — create a new port forward config
+      // -----------------------------------------------------------------------
+      .post("/", async ({ body, set }) => {
+        const { localPort, remoteHost, remotePort, connectionId } =
+          body as CreatePortForwardBody;
 
-      try {
-        const existing = (await getAllPortForwards(storage)).find(
-          (pf) => pf.localPort === localPort && pf.status === "active",
-        );
-
-        if (existing) {
-          set.status = 409;
-          return { error: "Local port is already in use" };
-        }
-
-        const connectionConfig = await getConnectionById(
-          storage,
-          connectionId,
-        );
-        if (!connectionConfig) {
-          set.status = 404;
-          return { error: "SSH connection not found" };
-        }
-
-        const newPf: PortForward = {
-          id: crypto.randomUUID(),
-          localPort,
-          remoteHost,
-          remotePort,
-          serverName: connectionConfig.serverName,
-          connectionId,
-          status: "inactive",
-          createdAt: new Date().toISOString(),
-        };
-
-        const all = await getAllPortForwards(storage);
-        all.push(newPf);
-        await savePortForwards(storage, all);
-
-        return { portForward: newPf };
-      } catch (error) {
-        set.status = 500;
-        return {
-          error: "Failed to create port forward",
-          details: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    })
-
-    // -----------------------------------------------------------------------
-    // POST /api/port-forward/:id/start — start the tunnel
-    // -----------------------------------------------------------------------
-    .post("/:id/start", async ({ params, set }) => {
-      const { id } = params;
-
-      try {
-        const portForward = await getPortForwardById(storage, id);
-        if (!portForward) {
-          set.status = 404;
-          return { error: "Port forward not found" };
-        }
-
-        if (portForward.status === "active") {
-          set.status = 400;
-          return { error: "Port forward is already active" };
-        }
-
-        // Resolve connection config (by id first, then by serverName)
-        const connectionConfig = portForward.connectionId
-          ? await getConnectionById(storage, portForward.connectionId)
-          : await getConnectionByName(storage, portForward.serverName);
-
-        if (!connectionConfig) {
-          set.status = 404;
-          return { error: "SSH connection not found" };
-        }
-
-        const sshClient = new Client();
-
-        const server = createServer((localSocket) => {
-          sshClient.forwardOut(
-            "localhost",
-            portForward.localPort,
-            portForward.remoteHost,
-            portForward.remotePort,
-            (err, stream) => {
-              if (err) {
-                localSocket.end();
-                console.error("Forward error:", err);
-                return;
-              }
-
-              localSocket.pipe(stream).pipe(localSocket);
-
-              localSocket.on("close", () => {
-                stream.end();
-              });
-
-              stream.on("close", () => {
-                localSocket.end();
-              });
-            },
+        try {
+          const existing = (await getAllPortForwards(storage)).find(
+            (pf) => pf.localPort === localPort && pf.status === "active",
           );
-        });
 
-        return new Promise((resolve) => {
-          sshClient.on("ready", () => {
-            server.listen(portForward.localPort, () => {
-              activeConnections.set(id, { client: sshClient, server });
+          if (existing) {
+            set.status = 409;
+            return { error: "Local port is already in use" };
+          }
 
-              // Persist status change
-              void updatePortForward(storage, id, { status: "active" });
+          const connectionConfig = await getConnectionById(
+            storage,
+            connectionId,
+          );
+          if (!connectionConfig) {
+            set.status = 404;
+            return { error: "SSH connection not found" };
+          }
 
-              if (eventBus) {
-                eventBus.emit("portforward:started", {
-                  id,
-                  localPort: portForward.localPort,
+          const newPf: PortForward = {
+            id: globalThis.crypto.randomUUID(),
+            localPort,
+            remoteHost,
+            remotePort,
+            serverName: connectionConfig.serverName,
+            connectionId,
+            status: "inactive",
+            createdAt: new Date().toISOString(),
+          };
+
+          const all = await getAllPortForwards(storage);
+          all.push(newPf);
+          await savePortForwards(storage, all);
+
+          return { portForward: newPf };
+        } catch (error) {
+          set.status = 500;
+          return {
+            error: "Failed to create port forward",
+            details: error instanceof Error ? error.message : "Unknown error",
+          };
+        }
+      })
+
+      // -----------------------------------------------------------------------
+      // POST /api/port-forward/:id/start — start the tunnel
+      // -----------------------------------------------------------------------
+      .post("/:id/start", async ({ params, set }) => {
+        const { id } = params;
+
+        try {
+          const portForward = await getPortForwardById(storage, id);
+          if (!portForward) {
+            set.status = 404;
+            return { error: "Port forward not found" };
+          }
+
+          if (portForward.status === "active") {
+            set.status = 400;
+            return { error: "Port forward is already active" };
+          }
+
+          // Resolve connection config (by id first, then by serverName)
+          const connectionConfig = portForward.connectionId
+            ? await getConnectionById(storage, portForward.connectionId)
+            : await getConnectionByName(storage, portForward.serverName);
+
+          if (!connectionConfig) {
+            set.status = 404;
+            return { error: "SSH connection not found" };
+          }
+
+          const sshClient = new Client();
+          const connectConfig = await buildConnectConfig(connectionConfig);
+
+          const server = createServer((localSocket) => {
+            sshClient.forwardOut(
+              "localhost",
+              portForward.localPort,
+              portForward.remoteHost,
+              portForward.remotePort,
+              (err, stream) => {
+                if (err) {
+                  localSocket.end();
+                  console.error("Forward error:", err);
+                  return;
+                }
+
+                localSocket.pipe(stream).pipe(localSocket);
+
+                localSocket.on("close", () => {
+                  stream.end();
                 });
-              } else {
-                console.log(
-                  `[port-forward] Started tunnel ${id} on localhost:${portForward.localPort}`,
-                );
-              }
 
-              resolve({
-                success: true,
-                message: `Port forwarding started on localhost:${portForward.localPort}`,
+                stream.on("close", () => {
+                  localSocket.end();
+                });
+              },
+            );
+          });
+
+          return new Promise((resolve) => {
+            sshClient.on("ready", () => {
+              server.listen(portForward.localPort, () => {
+                activeConnections.set(id, { client: sshClient, server });
+
+                // Persist status change
+                void updatePortForward(storage, id, { status: "active" });
+
+                if (eventBus) {
+                  eventBus.emit("portforward:started", {
+                    id,
+                    localPort: portForward.localPort,
+                  });
+                } else {
+                  console.log(
+                    `[port-forward] Started tunnel ${id} on localhost:${portForward.localPort}`,
+                  );
+                }
+
+                resolve({
+                  success: true,
+                  message: `Port forwarding started on localhost:${portForward.localPort}`,
+                });
+              });
+
+              server.on("error", (err) => {
+                sshClient.end();
+                set.status = 500;
+                resolve({
+                  error: "Failed to start local server",
+                  details: err.message,
+                });
               });
             });
 
-            server.on("error", (err) => {
-              sshClient.end();
+            sshClient.on("error", (err) => {
               set.status = 500;
               resolve({
-                error: "Failed to start local server",
+                error: "SSH connection failed",
                 details: err.message,
               });
             });
+
+            sshClient.connect(connectConfig);
           });
-
-          sshClient.on("error", (err) => {
-            set.status = 500;
-            resolve({
-              error: "SSH connection failed",
-              details: err.message,
-            });
-          });
-
-          sshClient.connect(buildConnectConfig(connectionConfig));
-        });
-      } catch (error) {
-        set.status = 500;
-        return {
-          error: "Failed to start port forward",
-          details: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    })
-
-    // -----------------------------------------------------------------------
-    // POST /api/port-forward/:id/stop — stop an active tunnel
-    // -----------------------------------------------------------------------
-    .post("/:id/stop", async ({ params, set }) => {
-      const { id } = params;
-
-      try {
-        const portForward = await getPortForwardById(storage, id);
-        if (!portForward) {
-          set.status = 404;
-          return { error: "Port forward not found" };
+        } catch (error) {
+          set.status = 500;
+          return {
+            error: "Failed to start port forward",
+            details: error instanceof Error ? error.message : "Unknown error",
+          };
         }
+      })
 
-        if (portForward.status !== "active") {
-          set.status = 400;
-          return { error: "Port forward is not active" };
-        }
+      // -----------------------------------------------------------------------
+      // POST /api/port-forward/:id/stop — stop an active tunnel
+      // -----------------------------------------------------------------------
+      .post("/:id/stop", async ({ params, set }) => {
+        const { id } = params;
 
-        const active = activeConnections.get(id);
-        if (active) {
-          active.server.close();
-          active.client.end();
-          activeConnections.delete(id);
-        }
+        try {
+          const portForward = await getPortForwardById(storage, id);
+          if (!portForward) {
+            set.status = 404;
+            return { error: "Port forward not found" };
+          }
 
-        await updatePortForward(storage, id, { status: "inactive" });
+          if (portForward.status !== "active") {
+            set.status = 400;
+            return { error: "Port forward is not active" };
+          }
 
-        if (eventBus) {
-          eventBus.emit("portforward:stopped", {
-            id,
-            localPort: portForward.localPort,
-          });
-        } else {
-          console.log(
-            `[port-forward] Stopped tunnel ${id} (localhost:${portForward.localPort})`,
-          );
-        }
-
-        return { success: true };
-      } catch (error) {
-        set.status = 500;
-        return {
-          error: "Failed to stop port forward",
-          details: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    })
-
-    // -----------------------------------------------------------------------
-    // DELETE /api/port-forward/:id — delete a port forward (stops if active)
-    // -----------------------------------------------------------------------
-    .delete("/:id", async ({ params, set }) => {
-      const { id } = params;
-
-      try {
-        const portForward = await getPortForwardById(storage, id);
-        if (!portForward) {
-          set.status = 404;
-          return { error: "Port forward not found" };
-        }
-
-        // Tear down tunnel if still active
-        if (portForward.status === "active") {
           const active = activeConnections.get(id);
           if (active) {
             active.server.close();
             active.client.end();
             activeConnections.delete(id);
           }
+
+          await updatePortForward(storage, id, { status: "inactive" });
+
+          if (eventBus) {
+            eventBus.emit("portforward:stopped", {
+              id,
+              localPort: portForward.localPort,
+            });
+          } else {
+            console.log(
+              `[port-forward] Stopped tunnel ${id} (localhost:${portForward.localPort})`,
+            );
+          }
+
+          return { success: true };
+        } catch (error) {
+          set.status = 500;
+          return {
+            error: "Failed to stop port forward",
+            details: error instanceof Error ? error.message : "Unknown error",
+          };
         }
+      })
 
-        await deletePortForwardById(storage, id);
+      // -----------------------------------------------------------------------
+      // DELETE /api/port-forward/:id — delete a port forward (stops if active)
+      // -----------------------------------------------------------------------
+      .delete("/:id", async ({ params, set }) => {
+        const { id } = params;
 
-        return { success: true };
-      } catch (error) {
-        set.status = 500;
-        return {
-          error: "Failed to delete port forward",
-          details: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    });
+        try {
+          const portForward = await getPortForwardById(storage, id);
+          if (!portForward) {
+            set.status = 404;
+            return { error: "Port forward not found" };
+          }
+
+          // Tear down tunnel if still active
+          if (portForward.status === "active") {
+            const active = activeConnections.get(id);
+            if (active) {
+              active.server.close();
+              active.client.end();
+              activeConnections.delete(id);
+            }
+          }
+
+          await deletePortForwardById(storage, id);
+
+          return { success: true };
+        } catch (error) {
+          set.status = 500;
+          return {
+            error: "Failed to delete port forward",
+            details: error instanceof Error ? error.message : "Unknown error",
+          };
+        }
+      })
+  );
 }
