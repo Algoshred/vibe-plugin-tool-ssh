@@ -1,6 +1,6 @@
 {
   "name": "@burdenoff/vibe-plugin-ssh",
-  "version": "2.2.0",
+  "version": "0.0.0-dev",
   "main": "./dist/index.js",
   "type": "module",
   "engines": {
