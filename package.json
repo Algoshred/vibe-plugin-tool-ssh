@@ -1,5 +1,5 @@
 {
-  "name": "@burdenoff/vibe-plugin-ssh",
+  "name": "@vibecontrols/vibe-plugin-ssh",
   "version": "0.0.0-dev",
   "main": "./dist/index.js",
   "type": "module",
@@ -71,7 +71,7 @@
   },
   "homepage": "https://vibecontrols.com",
   "publishConfig": {
-    "access": "public",
+    "access": "restricted",
     "registry": "https://registry.npmjs.org/"
   },
   "files": [
