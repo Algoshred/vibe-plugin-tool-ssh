@@ -296,6 +296,57 @@ export function createSSHRoutes(hostServices: HostServices) {
       })
 
       // -----------------------------------------------------------------------
+      // GET /api/ssh/connections/:id — get a single connection
+      // -----------------------------------------------------------------------
+      .get("/connections/:id", async ({ params, set }) => {
+        const conn = await getConnectionById(storage, params.id);
+        if (!conn) {
+          set.status = 404;
+          return { error: "Connection not found" };
+        }
+        return { connection: sanitise(conn) };
+      })
+
+      // -----------------------------------------------------------------------
+      // PUT /api/ssh/connections/:id — update an existing connection
+      // -----------------------------------------------------------------------
+      .put("/connections/:id", async ({ params, body, set }) => {
+        const { id } = params;
+        const patch = body as Record<string, unknown>;
+
+        try {
+          const connections = await getAllConnections(storage);
+          const idx = connections.findIndex((c) => c.id === id);
+
+          if (idx === -1) {
+            set.status = 404;
+            return { error: "Connection not found" };
+          }
+
+          const conn = connections[idx];
+          if (patch.serverName !== undefined)
+            conn.serverName = patch.serverName as string;
+          if (patch.host !== undefined) conn.host = patch.host as string;
+          if (patch.port !== undefined) conn.port = patch.port as number;
+          if (patch.username !== undefined)
+            conn.username = patch.username as string;
+          if (patch.privateKeyPath !== undefined)
+            conn.privateKeyPath = patch.privateKeyPath as string;
+          if (patch.password !== undefined)
+            conn.password = patch.password as string;
+
+          await saveConnections(storage, connections);
+          return { connection: sanitise(connections[idx]) };
+        } catch (error) {
+          set.status = 500;
+          return {
+            error: "Failed to update connection",
+            details: error instanceof Error ? error.message : "Unknown error",
+          };
+        }
+      })
+
+      // -----------------------------------------------------------------------
       // DELETE /api/ssh/connections/:id — remove a saved SSH connection
       // -----------------------------------------------------------------------
       .delete("/connections/:id", async ({ params, set }) => {

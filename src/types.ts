@@ -35,12 +35,22 @@ export interface EventBus {
 }
 
 // ---------------------------------------------------------------------------
-// Service registry – optional, exposes shared host services
+// Service registry – exposes shared host services & provider registration
 // ---------------------------------------------------------------------------
 
 export interface ServiceRegistry {
   get<T = unknown>(name: string): T | undefined;
+  registerProvider(type: string, provider: unknown, pluginName: string): void;
+  listProvidersForType(
+    type: string,
+  ): Array<{ pluginName: string; provider: unknown }>;
 }
+
+// ---------------------------------------------------------------------------
+// Broadcast function – sends events to all connected WebSocket clients
+// ---------------------------------------------------------------------------
+
+export type BroadcastFn = (type: string, payload: unknown) => void;
 
 // ---------------------------------------------------------------------------
 // HostServices – the bag of goodies the host agent hands to every plugin
@@ -50,6 +60,19 @@ export interface HostServices {
   storage: StorageProvider;
   eventBus?: EventBus;
   serviceRegistry?: ServiceRegistry;
+  broadcast?: BroadcastFn;
+  // Agent config and gateway access (optional for backward compat)
+  getConfig?(key: string): string | undefined;
+  getPluginRegistry?(): string;
+  getAgentBaseUrl?(): string;
+  getAgentVersion?(): string;
+  isGatewayConfigured?(): boolean;
+  getAgentRecordId?(): string | null;
+  getWorkspaceId?(): string | null;
+  workspaceQuery?<T = Record<string, unknown>>(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<{ data?: T; errors?: Array<{ message: string }> }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +123,68 @@ export interface PortForward {
 }
 
 // ---------------------------------------------------------------------------
+// SSH Terminal Session – remote ttyd session forwarded back to agent
+// ---------------------------------------------------------------------------
+
+export type SSHTerminalStatus =
+  | "starting"
+  | "active"
+  | "stopping"
+  | "stopped"
+  | "error";
+
+export interface SSHTerminalSession {
+  id: string;
+  connectionId: string;
+  remotePort: number;
+  localPort: number;
+  remotePid: number | null;
+  shell: string;
+  status: SSHTerminalStatus;
+  startedAt: string;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Remote agent install job
+// ---------------------------------------------------------------------------
+
+export type InstallJobStatus = "pending" | "running" | "completed" | "failed";
+export type InstallStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export interface RemoteAgentInstallStep {
+  name: string;
+  status: InstallStepStatus;
+  message?: string;
+}
+
+export interface RemoteAgentInstallJob {
+  id: string;
+  connectionId: string;
+  status: InstallJobStatus;
+  steps: RemoteAgentInstallStep[];
+  currentStep: number;
+  result?: {
+    agentUrl: string;
+    agentPort: number;
+    apiKey?: string;
+    tunnelUrl?: string;
+    hostname?: string;
+    platform?: string;
+    architecture?: string;
+    backendAgentId?: string;
+  };
+  error?: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Request body shapes
 // ---------------------------------------------------------------------------
 
@@ -108,6 +193,15 @@ export interface CreateConnectionBody {
   host: string;
   port?: number;
   username: string;
+  privateKeyPath?: string;
+  password?: string;
+}
+
+export interface UpdateConnectionBody {
+  serverName?: string;
+  host?: string;
+  port?: number;
+  username?: string;
   privateKeyPath?: string;
   password?: string;
 }
@@ -123,4 +217,26 @@ export interface CreatePortForwardBody {
   remoteHost: string;
   remotePort: number;
   connectionId: string;
+}
+
+export interface StartTerminalBody {
+  connectionId: string;
+  shell?: string;
+}
+
+export interface StopTerminalBody {
+  sessionId: string;
+}
+
+export interface StartAgentInstallBody {
+  connectionId: string;
+  agentName?: string;
+  agentPort?: number;
+  autoRegister?: boolean;
+}
+
+export interface BatchInstallBody {
+  connectionIds: string[];
+  agentPort?: number;
+  autoRegister?: boolean;
 }

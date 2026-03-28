@@ -33,7 +33,7 @@
     "url": "https://github.com/tvvignesh"
   },
   "license": "SEE LICENSE IN LICENSE",
-  "description": "SSH connections & port forwarding plugin for VibeControls Agent (Bun/Elysia)",
+  "description": "SSH connections, remote terminals, port forwarding & remote agent installation for VibeControls Agent",
   "dependencies": {
     "ssh2": "^1.16.0"
   },
