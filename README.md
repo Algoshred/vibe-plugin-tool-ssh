@@ -1,6 +1,6 @@
 # @burdenoff/vibe-plugin-ssh
 
-SSH connections & port forwarding plugin for [VibeControls Agent](https://www.npmjs.com/package/@burdenoff/vibe-agent).
+SSH connections & port forwarding plugin for [VibeControls Agent](https://www.npmjs.com/package/@vibecontrols/agent).
 
 ## Installation
 
