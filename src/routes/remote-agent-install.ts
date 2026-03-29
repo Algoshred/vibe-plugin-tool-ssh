@@ -18,6 +18,7 @@ import type {
   RemoteAgentInstallStep,
   StartAgentInstallBody,
   BatchInstallBody,
+  UninstallAgentBody,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -716,6 +717,50 @@ export function createRemoteAgentInstallRoutes(hostServices: HostServices) {
         }
 
         return { jobs, total: jobs.length };
+      })
+
+      // -----------------------------------------------------------------------
+      // POST /api/ssh/agent-install/uninstall — uninstall agent from remote
+      // -----------------------------------------------------------------------
+      .post("/uninstall", async ({ body, set }) => {
+        const { connectionId } = body as UninstallAgentBody;
+
+        const connConfig = await getConnectionById(storage, connectionId);
+        if (!connConfig) {
+          set.status = 404;
+          return { error: "SSH connection not found" };
+        }
+
+        const sshClient = new Client();
+        const connectConfig = await buildConnectConfig(connConfig);
+
+        await new Promise<void>((resolve, reject) => {
+          sshClient.on("ready", () => resolve());
+          sshClient.on("error", (err) => reject(err));
+          sshClient.connect({ ...connectConfig, readyTimeout: 15_000 });
+        });
+
+        try {
+          // Stop running agent processes
+          await sshExec(
+            sshClient,
+            'pkill -f "bun.*index.ts" 2>/dev/null; pkill -f "vibe" 2>/dev/null',
+            10_000,
+          ).catch(() => {});
+
+          // Remove agent files
+          await sshExec(sshClient, "rm -rf $HOME/.vibecontrols/agent", 10_000);
+
+          // Remove symlink
+          await sshExec(sshClient, "rm -f $HOME/.local/bin/vibe", 10_000);
+
+          // Remove vibecontrols state
+          await sshExec(sshClient, "rm -rf $HOME/.vibecontrols", 10_000);
+        } finally {
+          sshClient.end();
+        }
+
+        return { success: true, message: "Agent uninstalled" };
       })
   );
 }

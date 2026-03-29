@@ -240,3 +240,7 @@ export interface BatchInstallBody {
   agentPort?: number;
   autoRegister?: boolean;
 }
+
+export interface UninstallAgentBody {
+  connectionId: string;
+}
