@@ -95,6 +95,12 @@ let cleanupTerminals: (() => void) | undefined;
 // ---------------------------------------------------------------------------
 
 export const vibePlugin: VibePlugin = {
+  capabilities: {
+    storage: "rw",
+    subprocess: true,
+    audit: true,
+    telemetry: true,
+  },
   name: "ssh",
   version: "3.0.0",
   description:
@@ -104,6 +110,7 @@ export const vibePlugin: VibePlugin = {
   apiPrefix: "/api/ssh",
 
   async onServerStart(app: Elysia, hostServices: HostServices) {
+    hostServices?.telemetry?.emit("tool.ready", { provider: "ssh" });
     // SSH plugin is POSIX-only for now: it shells out to `ssh`, `scp`, `chmod`,
     // `tar`, and uses `nohup` to launch ttyd on the remote host. Windows
     // OpenSSH coverage and tar packaging differ enough that we don't claim
