@@ -11,6 +11,8 @@
 
 import { Elysia } from "elysia";
 import { Client } from "ssh2";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
 import type {
   HostServices,
   SSHConnection,
@@ -250,8 +252,11 @@ async function runInstallation(
             hostServices.getConfig?.("agent:packageDir") ||
             `${process.env.HOME}/products/vibecontrols/vibecontrols-agent`;
 
+          // npm pack runs locally — use the OS tmpdir for cross-platform
+          // correctness even though SSH itself only targets POSIX hosts.
+          const localTmpDir = tmpdir();
           const packResult = Bun.spawnSync(
-            ["npm", "pack", "--pack-destination", "/tmp"],
+            ["npm", "pack", "--pack-destination", localTmpDir],
             { cwd: agentDir, stdout: "pipe", stderr: "pipe" },
           );
           const tgzName = packResult.stdout
@@ -259,7 +264,7 @@ async function runInstallation(
             .trim()
             .split("\n")
             .pop();
-          const tgzPath = tgzName ? `/tmp/${tgzName}` : "";
+          const tgzPath = tgzName ? joinPath(localTmpDir, tgzName) : "";
 
           if (!tgzPath || !(await Bun.file(tgzPath).exists())) {
             return fail(3, "Failed to pack agent for transfer");

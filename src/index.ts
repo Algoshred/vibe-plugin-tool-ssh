@@ -104,6 +104,18 @@ export const vibePlugin: VibePlugin = {
   apiPrefix: "/api/ssh",
 
   async onServerStart(app: Elysia, hostServices: HostServices) {
+    // SSH plugin is POSIX-only for now: it shells out to `ssh`, `scp`, `chmod`,
+    // `tar`, and uses `nohup` to launch ttyd on the remote host. Windows
+    // OpenSSH coverage and tar packaging differ enough that we don't claim
+    // support yet — see README.
+    if (process.platform === "win32") {
+      console.warn(
+        "  Plugin 'ssh' is not supported on Windows yet — skipping route + provider registration. " +
+          "See https://github.com/algoshred/vibe-plugin-tool-ssh for status.",
+      );
+      return;
+    }
+
     // Dynamically import route modules — ssh2 native deps only load when
     // the plugin is actually activated.
     const { createSSHRoutes } = await import("./routes/ssh.js");
@@ -191,6 +203,20 @@ export const vibePlugin: VibePlugin = {
     const ssh = program
       .command("ssh")
       .description("SSH connection and remote terminal management");
+
+    // Windows gate: every subcommand below ultimately shells out to POSIX
+    // tooling that has no first-class equivalent on cmd / PowerShell yet.
+    // Bail out at command-dispatch time (preHook covers every subcommand)
+    // with a clear message rather than producing confusing tool-not-found
+    // errors deep in the stack.
+    ssh.hook("preAction", () => {
+      if (process.platform === "win32") {
+        console.error(
+          "SSH plugin is not supported on Windows yet — see issue tracker.",
+        );
+        process.exit(1);
+      }
+    });
 
     ssh
       .command("list")

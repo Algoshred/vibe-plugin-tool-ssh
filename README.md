@@ -2,6 +2,15 @@
 
 SSH connections & port forwarding plugin for [VibeControls Agent](https://www.npmjs.com/package/@vibecontrols/agent).
 
+## Platform support
+
+This plugin is **POSIX-only** for now (Linux, macOS, WSL). It shells out to
+`ssh`, `scp`, `chmod`, `tar`, and uses `nohup` to launch `ttyd` on the remote
+host. Native Windows support (cmd / PowerShell) is not yet implemented — the
+plugin self-disables on `process.platform === "win32"` and the CLI subcommands
+exit early with a "not supported on Windows yet" message. Track progress in the
+issue tracker.
+
 ## Installation
 
 ```bash
