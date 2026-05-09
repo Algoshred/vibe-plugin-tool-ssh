@@ -1,5 +1,5 @@
 /**
- * @burdenoff/vibe-plugin-ssh v3.0.0
+ * @vibecontrols/vibe-plugin-tool-ssh
  *
  * SSH connections, remote command execution, port forwarding,
  * remote terminal sessions (ttyd on destination), and remote agent installation.
@@ -9,18 +9,25 @@
  *   - Session provider: "ssh" (for terminal proxy integration)
  *   - CLI commands: vibe ssh ...
  *
- * Install: vibe plugin install @burdenoff/vibe-plugin-ssh
+ * Migrated to consume `@vibecontrols/plugin-sdk` for the contract,
+ * lifecycle, telemetry, CLI multimode, and redaction helpers.
  */
 
-import type { Elysia } from "elysia";
 import type { Command } from "commander";
-import type { HostServices, VibePlugin } from "./types.js";
+
 import {
-  runMultimode,
-  pickOutputMode,
+  createLifecycleHooks,
   maybePrintJson,
+  pickOutputMode,
+  redact,
+  runMultimode,
+  TelemetryEmitter,
+  type HostServices,
   type OutputFlags,
-} from "./utils/multimode.js";
+  type VibePlugin,
+} from "@vibecontrols/plugin-sdk";
+
+import type { AgentHostServices } from "./types.js";
 import {
   interactiveTable,
   interactiveDetail,
@@ -48,19 +55,6 @@ async function apiFetch(
   });
 }
 
-const SECRET_RX = /(token|secret|password|apikey|api_key)/i;
-
-function redact(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  if (Array.isArray(value)) return value.map(redact);
-  if (typeof value !== "object") return value;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = SECRET_RX.test(k) ? "[redacted]" : redact(v);
-  }
-  return out;
-}
-
 interface RecordWithId {
   id?: string;
   name?: string;
@@ -72,7 +66,10 @@ interface RecordWithId {
 
 // Re-export types for external consumers
 export type {
-  VibePlugin,
+  AgentHostServices,
+  AgentStorageProvider,
+  AgentEventBus,
+  AgentServiceRegistry,
   HostServices,
   StorageProvider,
   EventBus,
@@ -94,6 +91,22 @@ let cleanupTerminals: (() => void) | undefined;
 // Plugin definition
 // ---------------------------------------------------------------------------
 
+const PLUGIN_NAME = "ssh";
+const PLUGIN_VERSION = "2026.508.3";
+
+const lifecycle = createLifecycleHooks({
+  name: PLUGIN_NAME,
+  telemetryEventName: "tool.ready",
+  onInit: (hostServices: HostServices) => {
+    const telemetry = new TelemetryEmitter(
+      PLUGIN_NAME,
+      PLUGIN_VERSION,
+      hostServices,
+    );
+    telemetry.emitEvent("tool.ready", { provider: "ssh" });
+  },
+});
+
 export const vibePlugin: VibePlugin = {
   capabilities: {
     storage: "rw",
@@ -101,27 +114,34 @@ export const vibePlugin: VibePlugin = {
     audit: true,
     telemetry: true,
   },
-  name: "ssh",
-  version: "3.0.0",
+  name: PLUGIN_NAME,
+  version: PLUGIN_VERSION,
   description:
     "SSH connection management, remote terminals, port forwarding, and remote agent installation",
   tags: ["backend", "cli", "integration", "provider"],
   cliCommand: "ssh",
   apiPrefix: "/api/ssh",
 
-  async onServerStart(app: Elysia, hostServices: HostServices) {
-    hostServices?.telemetry?.emit("tool.ready", { provider: "ssh" });
+  async onServerStart(app: unknown, hostServices: HostServices) {
+    await lifecycle.onServerStart(app, hostServices);
+
     // SSH plugin is POSIX-only for now: it shells out to `ssh`, `scp`, `chmod`,
     // `tar`, and uses `nohup` to launch ttyd on the remote host. Windows
     // OpenSSH coverage and tar packaging differ enough that we don't claim
     // support yet — see README.
     if (process.platform === "win32") {
-      console.warn(
+      process.stderr.write(
         "  Plugin 'ssh' is not supported on Windows yet — skipping route + provider registration. " +
-          "See https://github.com/algoshred/vibe-plugin-tool-ssh for status.",
+          "See https://github.com/algoshred/vibe-plugin-tool-ssh for status.\n",
       );
       return;
     }
+
+    // The agent passes a real Elysia instance with the richer HostServices
+    // surface — narrow once at the boundary so route factories see the
+    // agent shape (sync getConfig, 3-arg registerProvider).
+    const elysiaApp = app as { use: (plugin: unknown) => unknown };
+    const agentHost = hostServices as unknown as AgentHostServices;
 
     // Dynamically import route modules — ssh2 native deps only load when
     // the plugin is actually activated.
@@ -140,11 +160,11 @@ export const vibePlugin: VibePlugin = {
       await import("./routes/ssh-config-scan.js");
 
     // Mount all route groups
-    app.use(createSSHRoutes(hostServices));
-    app.use(createPortForwardRoutes(hostServices));
-    app.use(createRemoteTerminalRoutes(hostServices));
-    app.use(createRemoteAgentInstallRoutes(hostServices));
-    app.use(createSSHConfigScanRoutes(hostServices));
+    elysiaApp.use(createSSHRoutes(agentHost));
+    elysiaApp.use(createPortForwardRoutes(agentHost));
+    elysiaApp.use(createRemoteTerminalRoutes(agentHost));
+    elysiaApp.use(createRemoteAgentInstallRoutes(agentHost));
+    elysiaApp.use(createSSHConfigScanRoutes(agentHost));
 
     // Stash cleanup functions
     cleanupPortForwards = cleanupAllTunnels;
@@ -152,9 +172,7 @@ export const vibePlugin: VibePlugin = {
 
     // Register as a "session" provider so the agent's terminal proxy at
     // /terminal/:sessionId/ws can find our SSH-forwarded ttyd ports.
-    // We only need to implement getTerminalInfo(); other SessionProvider
-    // methods are not called by the terminal proxy.
-    if (hostServices.serviceRegistry) {
+    if (agentHost.serviceRegistry) {
       const sshSessionProvider = {
         name: "ssh",
         getTerminalInfo: (sessionId: string) => getTerminalInfo(sessionId),
@@ -182,15 +200,15 @@ export const vibePlugin: VibePlugin = {
         },
       };
 
-      hostServices.serviceRegistry.registerProvider(
+      agentHost.serviceRegistry.registerProvider(
         "session",
         sshSessionProvider,
         "ssh",
       );
     }
 
-    console.log(
-      "  Plugin 'ssh' v3.0.0 registered routes: /api/ssh, /api/port-forward, /api/ssh/terminal, /api/ssh/agent-install, /api/ssh/config-scan",
+    process.stdout.write(
+      "  Plugin 'ssh' registered routes: /api/ssh, /api/port-forward, /api/ssh/terminal, /api/ssh/agent-install, /api/ssh/config-scan\n",
     );
   },
 
@@ -203,23 +221,23 @@ export const vibePlugin: VibePlugin = {
       cleanupPortForwards();
       cleanupPortForwards = undefined;
     }
-    console.log("  Plugin 'ssh' cleaned up active connections and terminals");
+    process.stdout.write(
+      "  Plugin 'ssh' cleaned up active connections and terminals\n",
+    );
   },
 
-  onCliSetup(program: Command) {
+  onCliSetup(programArg: unknown) {
+    const program = programArg as Command;
     const ssh = program
       .command("ssh")
       .description("SSH connection and remote terminal management");
 
     // Windows gate: every subcommand below ultimately shells out to POSIX
     // tooling that has no first-class equivalent on cmd / PowerShell yet.
-    // Bail out at command-dispatch time (preHook covers every subcommand)
-    // with a clear message rather than producing confusing tool-not-found
-    // errors deep in the stack.
     ssh.hook("preAction", () => {
       if (process.platform === "win32") {
-        console.error(
-          "SSH plugin is not supported on Windows yet — see issue tracker.",
+        process.stderr.write(
+          "SSH plugin is not supported on Windows yet — see issue tracker.\n",
         );
         process.exit(1);
       }
@@ -242,12 +260,12 @@ export const vibePlugin: VibePlugin = {
           },
           plain: (rows) => {
             if (!rows || rows.length === 0) {
-              console.log(
-                "Use the agent API to list SSH connections: GET /api/ssh/connections",
+              process.stdout.write(
+                "Use the agent API to list SSH connections: GET /api/ssh/connections\n",
               );
               return;
             }
-            console.log(JSON.stringify(rows, null, 2));
+            process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
           },
           interactive: async (rows) => {
             if (!rows || rows.length === 0) {
@@ -289,12 +307,12 @@ export const vibePlugin: VibePlugin = {
           },
           plain: (rows) => {
             if (!rows || rows.length === 0) {
-              console.log(
-                "Use the agent API to list terminal sessions: GET /api/ssh/terminal/sessions",
+              process.stdout.write(
+                "Use the agent API to list terminal sessions: GET /api/ssh/terminal/sessions\n",
               );
               return;
             }
-            console.log(JSON.stringify(rows, null, 2));
+            process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
           },
           interactive: async (rows) => {
             if (!rows || rows.length === 0) {
@@ -326,11 +344,9 @@ export const vibePlugin: VibePlugin = {
       .action(async (opts: OutputFlags) => {
         const message =
           "Use the agent API to list install jobs: GET /api/ssh/agent-install/jobs";
-        if (
-          maybePrintJson(opts, { ok: true, action: "install-jobs", message })
-        )
+        if (maybePrintJson(opts, { ok: true, action: "install-jobs", message }))
           return;
-        console.log(message);
+        process.stdout.write(`${message}\n`);
       });
   },
 };

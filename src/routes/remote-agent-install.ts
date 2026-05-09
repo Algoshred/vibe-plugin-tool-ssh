@@ -246,7 +246,11 @@ async function runInstallation(
 
       if (installCode !== 0) {
         // Strategy 2: npm pack locally, SCP tarball, extract on remote
-        updateStep(3, "running", "Registry unavailable, transferring directly...");
+        updateStep(
+          3,
+          "running",
+          "Registry unavailable, transferring directly...",
+        );
         try {
           const agentDir =
             hostServices.getConfig?.("agent:packageDir") ||
@@ -259,11 +263,7 @@ async function runInstallation(
             ["npm", "pack", "--pack-destination", localTmpDir],
             { cwd: agentDir, stdout: "pipe", stderr: "pipe" },
           );
-          const tgzName = packResult.stdout
-            .toString()
-            .trim()
-            .split("\n")
-            .pop();
+          const tgzName = packResult.stdout.toString().trim().split("\n").pop();
           const tgzPath = tgzName ? joinPath(localTmpDir, tgzName) : "";
 
           if (!tgzPath || !(await Bun.file(tgzPath).exists())) {
@@ -272,8 +272,10 @@ async function runInstallation(
 
           // SCP to remote
           const scpArgs = [
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-P", String(connConfig.port),
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-P",
+            String(connConfig.port),
           ];
           if (connConfig.privateKeyPath) {
             scpArgs.push("-i", connConfig.privateKeyPath);
@@ -303,7 +305,10 @@ async function runInstallation(
             120_000,
           );
           if (setupCode2 !== 0) {
-            return fail(3, `Failed to set up agent: ${setupErr2?.slice(0, 200)}`);
+            return fail(
+              3,
+              `Failed to set up agent: ${setupErr2?.slice(0, 200)}`,
+            );
           }
 
           // Verify vibe is available
@@ -312,7 +317,10 @@ async function runInstallation(
             `${REMOTE_PATH} && which vibe`,
           );
           if (vibeCheck !== 0) {
-            return fail(3, "Agent installed but 'vibe' command not found in PATH");
+            return fail(
+              3,
+              "Agent installed but 'vibe' command not found in PATH",
+            );
           }
         } catch (transferErr) {
           return fail(

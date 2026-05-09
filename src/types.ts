@@ -1,20 +1,20 @@
 /**
- * Type declarations for the vibe-plugin-ssh plugin.
+ * Domain models for the vibe-plugin-tool-ssh plugin.
  *
- * All interfaces are defined locally so the plugin does not hard-import
- * from the core agent package.  At runtime the host agent injects concrete
- * implementations via HostServices.
+ * Plugin contract types (VibePlugin / HostServices / PluginCapabilities /
+ * StorageProvider / ServiceRegistry / EventBus) are imported from
+ * `@vibecontrols/plugin-sdk` — do NOT redeclare them here.
+ *
+ * The agent's runtime exposes a richer HostServices surface (3-arg
+ * `registerProvider`, sync `getConfig` / `getAgentRecordId` /
+ * `getWorkspaceId`) than the SDK's neutral contract. Routes / install
+ * helpers in this plugin reference that richer shape via
+ * `AgentHostServices` below; the plugin entry-point in `src/index.ts`
+ * only relies on the narrower SDK contract.
  */
 
-import type { Elysia } from "elysia";
-import type { Command } from "commander";
-
-// ---------------------------------------------------------------------------
-// KV Storage provider – the host agent supplies this
-// ---------------------------------------------------------------------------
-
-export interface StorageProvider {
-  /** Retrieve a value by namespace + key.  Returns `null` when missing. */
+export interface AgentStorageProvider {
+  /** Retrieve a value by namespace + key. Returns `null` when missing. */
   get(namespace: string, key: string): Promise<string | null>;
   /** Persist a value under namespace + key. */
   set(namespace: string, key: string, value: string): Promise<void>;
@@ -24,21 +24,13 @@ export interface StorageProvider {
   keys(namespace: string): Promise<string[]>;
 }
 
-// ---------------------------------------------------------------------------
-// Event bus – optional, used when the host provides one
-// ---------------------------------------------------------------------------
-
-export interface EventBus {
+export interface AgentEventBus {
   emit(event: string, payload: unknown): void;
   on(event: string, handler: (payload: unknown) => void): void;
   off(event: string, handler: (payload: unknown) => void): void;
 }
 
-// ---------------------------------------------------------------------------
-// Service registry – exposes shared host services & provider registration
-// ---------------------------------------------------------------------------
-
-export interface ServiceRegistry {
+export interface AgentServiceRegistry {
   get<T = unknown>(name: string): T | undefined;
   registerProvider(type: string, provider: unknown, pluginName: string): void;
   listProvidersForType(
@@ -46,25 +38,22 @@ export interface ServiceRegistry {
   ): Array<{ pluginName: string; provider: unknown }>;
 }
 
-// ---------------------------------------------------------------------------
-// Broadcast function – sends events to all connected WebSocket clients
-// ---------------------------------------------------------------------------
-
 export type BroadcastFn = (type: string, payload: unknown) => void;
 
-// ---------------------------------------------------------------------------
-// HostServices – the bag of goodies the host agent hands to every plugin
-// ---------------------------------------------------------------------------
-
-export interface HostServices {
+/**
+ * The runtime shape the agent injects into route factories. Storage is
+ * required (every helper hits it). Other host capabilities remain
+ * optional so the plugin still loads under partial / older host
+ * implementations.
+ */
+export interface AgentHostServices {
   telemetry?: {
     emit: (name: string, payload?: Record<string, unknown>) => void;
   };
-  storage: StorageProvider;
-  eventBus?: EventBus;
-  serviceRegistry?: ServiceRegistry;
+  storage: AgentStorageProvider;
+  eventBus?: AgentEventBus;
+  serviceRegistry?: AgentServiceRegistry;
   broadcast?: BroadcastFn;
-  // Agent config and gateway access (optional for backward compat)
   getConfig?(key: string): string | undefined;
   getPluginRegistry?(): string;
   getAgentBaseUrl?(): string;
@@ -78,37 +67,11 @@ export interface HostServices {
   ): Promise<{ data?: T; errors?: Array<{ message: string }> }>;
 }
 
-// ---------------------------------------------------------------------------
-// VibePlugin contract – every plugin must satisfy this shape
-// ---------------------------------------------------------------------------
-
-export interface PluginCapabilities {
-  storage?: "none" | "read" | "rw";
-  secrets?: "none" | "read" | "rw";
-  gateway?: boolean;
-  broadcast?: boolean;
-  subprocess?: boolean;
-  audit?: boolean;
-  telemetry?: boolean;
-}
-
-export interface VibePlugin {
-  capabilities?: PluginCapabilities;
-  name: string;
-  version: string;
-  description?: string;
-  tags?: Array<
-    "backend" | "frontend" | "cli" | "provider" | "adapter" | "integration"
-  >;
-  cliCommand?: string;
-  apiPrefix?: string;
-  onCliSetup?: (program: Command) => void | Promise<void>;
-  onServerStart?: (
-    app: Elysia,
-    hostServices: HostServices,
-  ) => void | Promise<void>;
-  onServerStop?: () => void | Promise<void>;
-}
+// Back-compat aliases — every file in src/routes/ imports these names.
+export type StorageProvider = AgentStorageProvider;
+export type EventBus = AgentEventBus;
+export type ServiceRegistry = AgentServiceRegistry;
+export type HostServices = AgentHostServices;
 
 // ---------------------------------------------------------------------------
 // Domain models
@@ -136,10 +99,6 @@ export interface PortForward {
   createdAt?: string;
 }
 
-// ---------------------------------------------------------------------------
-// SSH Terminal Session – remote ttyd session forwarded back to agent
-// ---------------------------------------------------------------------------
-
 export type SSHTerminalStatus =
   | "starting"
   | "active"
@@ -158,10 +117,6 @@ export interface SSHTerminalSession {
   startedAt: string;
   error?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Remote agent install job
-// ---------------------------------------------------------------------------
 
 export type InstallJobStatus = "pending" | "running" | "completed" | "failed";
 export type InstallStepStatus =
