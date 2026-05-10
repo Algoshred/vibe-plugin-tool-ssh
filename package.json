@@ -35,7 +35,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "description": "SSH connections, remote terminals, port forwarding & remote agent installation for VibeControls Agent",
   "dependencies": {
-    "@vibecontrols/plugin-sdk": "2026.509.1",
+    "@vibecontrols/plugin-sdk": "2026.509.2",
     "ssh2": "^1.16.0"
   },
   "devDependencies": {
