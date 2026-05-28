@@ -13,6 +13,7 @@ import { Elysia } from "elysia";
 import { Client } from "ssh2";
 import { tmpdir } from "node:os";
 import { join as joinPath } from "node:path";
+import { expandPath } from "../utils/expand-path";
 import type {
   HostServices,
   SSHConnection,
@@ -67,7 +68,7 @@ async function buildConnectConfig(conn: SSHConnection) {
   };
 
   if (conn.privateKeyPath) {
-    const file = Bun.file(conn.privateKeyPath);
+    const file = Bun.file(expandPath(conn.privateKeyPath));
     cfg.privateKey = Buffer.from(await file.arrayBuffer());
   } else if (conn.password) {
     cfg.password = conn.password;
@@ -278,7 +279,7 @@ async function runInstallation(
             String(connConfig.port),
           ];
           if (connConfig.privateKeyPath) {
-            scpArgs.push("-i", connConfig.privateKeyPath);
+            scpArgs.push("-i", expandPath(connConfig.privateKeyPath));
           }
           scpArgs.push(
             tgzPath,

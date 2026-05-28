@@ -8,6 +8,7 @@
 
 import { Elysia } from "elysia";
 import { Client } from "ssh2";
+import { expandPath } from "../utils/expand-path";
 import type { HostServices, SSHConnection } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ async function buildConnectConfig(conn: SSHConnection) {
     username: conn.username,
   };
   if (conn.privateKeyPath) {
-    const file = Bun.file(conn.privateKeyPath);
+    const file = Bun.file(expandPath(conn.privateKeyPath));
     cfg.privateKey = Buffer.from(await file.arrayBuffer());
   } else if (conn.password) {
     cfg.password = conn.password;

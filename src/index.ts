@@ -118,6 +118,7 @@ export const createPlugin: VibePluginFactory = (
       subprocess: true,
       audit: true,
       telemetry: true,
+      broadcast: true,
     },
     name: PLUGIN_NAME,
     version: PLUGIN_VERSION,
