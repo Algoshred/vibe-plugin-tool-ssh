@@ -12,6 +12,7 @@ import { Elysia } from "elysia";
 import { Client } from "ssh2";
 import { createServer, type Server } from "node:net";
 import type { Subprocess } from "bun";
+import { expandPath } from "../utils/expand-path";
 import type {
   HostServices,
   SSHConnection,
@@ -71,7 +72,7 @@ async function buildConnectConfig(conn: SSHConnection) {
   };
 
   if (conn.privateKeyPath) {
-    const file = Bun.file(conn.privateKeyPath);
+    const file = Bun.file(expandPath(conn.privateKeyPath));
     cfg.privateKey = Buffer.from(await file.arrayBuffer());
   } else if (conn.password) {
     cfg.password = conn.password;
@@ -411,7 +412,7 @@ export function createRemoteTerminalRoutes(hostServices: HostServices) {
                   ];
 
                   if (connConfig.privateKeyPath) {
-                    sshArgs.push("-i", connConfig.privateKeyPath);
+                    sshArgs.push("-i", expandPath(connConfig.privateKeyPath));
                   }
 
                   sshArgs.push(`${connConfig.username}@${connConfig.host}`);
