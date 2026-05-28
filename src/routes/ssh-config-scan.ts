@@ -6,6 +6,7 @@
  * so users can batch-install vibecontrols-agent on them.
  */
 
+import { homedir } from "node:os";
 import { Elysia } from "elysia";
 import { Client } from "ssh2";
 import { expandPath } from "../utils/expand-path";
@@ -65,7 +66,7 @@ function parseSSHConfig(content: string): SSHConfigHost[] {
           current.user = value;
           break;
         case "identityfile":
-          current.identityFile = value.replace(/^~/, process.env.HOME || "~");
+          current.identityFile = value.replace(/^~/, homedir());
           break;
         case "proxyjump":
           current.proxyJump = value;
@@ -168,7 +169,7 @@ export function createSSHConfigScanRoutes(hostServices: HostServices) {
           configPath?: string;
         };
 
-        const resolved = configPath.replace(/^~/, process.env.HOME || "~");
+        const resolved = configPath.replace(/^~/, homedir());
 
         try {
           const file = Bun.file(resolved);

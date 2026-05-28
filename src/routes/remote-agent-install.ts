@@ -11,7 +11,7 @@
 
 import { Elysia } from "elysia";
 import { Client } from "ssh2";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join as joinPath } from "node:path";
 import { expandPath } from "../utils/expand-path";
 import type {
@@ -255,7 +255,7 @@ async function runInstallation(
         try {
           const agentDir =
             hostServices.getConfig?.("agent:packageDir") ||
-            `${process.env.HOME}/products/vibecontrols/vibecontrols-agent`;
+            `${homedir()}/products/vibecontrols/vibecontrols-agent`;
 
           // npm pack runs locally — use the OS tmpdir for cross-platform
           // correctness even though SSH itself only targets POSIX hosts.
