@@ -29,10 +29,9 @@
   ],
   "author": {
     "name": "Vignesh T.V",
-    "email": "vignesh@burdenoff.com",
     "url": "https://github.com/tvvignesh"
   },
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "description": "SSH connections, remote terminals, port forwarding & remote agent installation for VibeControls Agent",
   "dependencies": {
     "@vibecontrols/plugin-sdk": "2026.509.2",
