@@ -29,12 +29,29 @@ import {
   type VibePluginFactory,
 } from "@vibecontrols/plugin-sdk";
 
-import type { AgentHostServices } from "./types.js";
+import type { AgentHostServices, AgentStorageProvider } from "./types.js";
 import {
   interactiveTable,
   interactiveDetail,
   type TableRow,
 } from "./utils/interactive.js";
+
+// ---------------------------------------------------------------------------
+// Storage namespace owned by this plugin (mirrors the namespace used by the
+// route modules in src/routes/*). On nuke we wipe every key under it.
+// ---------------------------------------------------------------------------
+
+const STORAGE_NS = "ssh";
+
+/** Delete every key the plugin persisted under its namespace. */
+async function clearStorageNamespace(
+  storage: AgentStorageProvider,
+): Promise<void> {
+  const keys = await storage.keys(STORAGE_NS);
+  for (const key of keys) {
+    await storage.delete(STORAGE_NS, key);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // CLI helpers
@@ -109,6 +126,35 @@ export const createPlugin: VibePluginFactory = (
         hostServices,
       );
       telemetry.emitEvent("tool.ready", { provider: "ssh" });
+    },
+    // `vibe nuke` runs this while the daemon is still up, so the module-level
+    // cleanup functions stashed during onServerStart (and the in-memory
+    // session/tunnel maps they reap) are still reachable. Force-reap every
+    // `ssh -L` tunnel subprocess + ssh2 client + local forward server this
+    // plugin spawned, then wipe its persisted storage namespace (connections,
+    // port-forwards, terminal-sessions). The agent never names ttyd/ssh —
+    // that provider knowledge lives here. Reuses the same teardown helpers as
+    // onServerStop so there is a single reaping path.
+    onNuke: async (hostServices: HostServices, ctx) => {
+      const reaped = [
+        "ssh -L tunnel subprocesses + ssh clients",
+        "ssh storage",
+      ];
+      if (ctx.dryRun) return { reaped };
+
+      if (cleanupTerminals) {
+        cleanupTerminals();
+        cleanupTerminals = undefined;
+      }
+      if (cleanupPortForwards) {
+        cleanupPortForwards();
+        cleanupPortForwards = undefined;
+      }
+
+      const storage = (hostServices as unknown as AgentHostServices).storage;
+      await clearStorageNamespace(storage);
+
+      return { reaped };
     },
   });
 
@@ -358,6 +404,8 @@ export const createPlugin: VibePluginFactory = (
         });
     },
   };
+
+  plugin.onNuke = lifecycle.onNuke;
 
   return plugin;
 };
