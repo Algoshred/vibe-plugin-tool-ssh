@@ -118,6 +118,36 @@ export interface SSHTerminalSession {
   error?: string;
 }
 
+/**
+ * Terminal transport descriptor returned to the agent's terminal proxy.
+ *
+ * The proxy connects the browser WebSocket to `ws://{host}:{port}{wsPath}`
+ * negotiating `subprotocols`, WITHOUT assuming any particular terminal
+ * backend. For this SSH provider the backend is a remote `ttyd` reached over
+ * an `ssh -L` port forward; ttyd serves the live PTY at `/ws` with the `tty`
+ * subprotocol, bound to loopback on the agent side of the tunnel.
+ */
+export interface TerminalInfo {
+  url: string;
+  port: number;
+  pid: number;
+  /**
+   * Loopback host the (forwarded) terminal server listens on. The agent's
+   * terminal proxy connects here. Defaults to `127.0.0.1` when omitted.
+   */
+  host?: string;
+  /**
+   * WebSocket path the terminal server exposes for the live PTY stream, e.g.
+   * `/ws` for ttyd. Defaults to `/ws` when omitted.
+   */
+  wsPath?: string;
+  /**
+   * WebSocket subprotocols the terminal server negotiates (e.g. `["tty"]` for
+   * ttyd). Forwarded verbatim by the agent. Defaults to `["tty"]` when omitted.
+   */
+  subprotocols?: string[];
+}
+
 export type InstallJobStatus = "pending" | "running" | "completed" | "failed";
 export type InstallStepStatus =
   | "pending"

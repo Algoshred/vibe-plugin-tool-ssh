@@ -19,6 +19,7 @@ import type {
   SSHTerminalSession,
   StartTerminalBody,
   StopTerminalBody,
+  TerminalInfo,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -254,15 +255,19 @@ export function cleanupAllTerminals(): void {
 // proxy at /terminal/:sessionId/ws can find and route to our forwarded port.
 // ---------------------------------------------------------------------------
 
-export function getTerminalInfo(
-  sessionId: string,
-): { url: string; port: number; pid: number } | null {
+export function getTerminalInfo(sessionId: string): TerminalInfo | null {
   const terminal = activeTerminals.get(sessionId);
   if (!terminal || terminal.session.status !== "active") return null;
   return {
     url: `http://127.0.0.1:${terminal.session.localPort}`,
     port: terminal.session.localPort,
     pid: process.pid, // Agent's own PID – always alive while agent runs
+    // Explicit terminal transport so the agent's proxy never assumes a
+    // backend. The live PTY is served by remote ttyd (reached over the
+    // `ssh -L` forward) at /ws with the "tty" subprotocol on loopback.
+    host: "127.0.0.1",
+    wsPath: "/ws",
+    subprotocols: ["tty"],
   };
 }
 
