@@ -23,6 +23,34 @@ import type {
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
+// ttyd client options (xterm.js `-t key=value`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Standard xterm.js client options passed to the remote ttyd, kept in sync
+ * with the local session provider plugins (tmux / wezterm / zellij). These
+ * make copy usable: full-screen TUI apps turn on mouse reporting, which
+ * otherwise eats a drag so no selection is ever made and ttyd's built-in
+ * copy-on-select has nothing to copy (BOFF-2856).
+ *   macOptionClickForcesSelection — Option+drag forces a native selection
+ *     even when a full-screen app has mouse reporting on.
+ *   rightClickSelectsWord — right-click selects the word under the cursor so
+ *     the browser context-menu copy has something to grab.
+ *   scrollback — generous local scrollback buffer.
+ * ttyd already copies a selection the instant it is made (its frontend calls
+ * document.execCommand('copy') on onSelectionChange); there is no
+ * `copyOnSelect` option to set. The theme value is single-quoted because it
+ * contains double quotes and braces and is interpolated into a shell command
+ * run over SSH.
+ */
+const TTYD_CLIENT_OPTS =
+  `-t fontSize=14 ` +
+  `-t 'theme={"background":"#1e1e1e","foreground":"#cccccc"}' ` +
+  `-t macOptionClickForcesSelection=true ` +
+  `-t rightClickSelectsWord=true ` +
+  `-t scrollback=10000`;
+
+// ---------------------------------------------------------------------------
 // In-memory state for active SSH terminal sessions
 // ---------------------------------------------------------------------------
 
@@ -368,7 +396,7 @@ export function createRemoteTerminalRoutes(hostServices: HostServices) {
                 // 5. Start ttyd on remote
                 const { stdout: pidOutput, code: startCode } = await sshExec(
                   sshClient,
-                  `nohup ttyd --writable --port ${remotePort} ${shell} > /dev/null 2>&1 & echo $!`,
+                  `nohup ttyd ${TTYD_CLIENT_OPTS} --writable --port ${remotePort} ${shell} > /dev/null 2>&1 & echo $!`,
                 );
 
                 if (startCode !== 0 || !pidOutput) {
