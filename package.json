@@ -64,10 +64,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/algoshred/vibe-plugin-tool-ssh.git"
+    "url": "git+https://github.com/Algoshred/vibe-plugin-tool-ssh.git"
   },
   "bugs": {
-    "url": "https://github.com/algoshred/vibe-plugin-tool-ssh/issues"
+    "url": "https://github.com/Algoshred/vibe-plugin-tool-ssh/issues"
   },
   "homepage": "https://vibecontrols.com",
   "publishConfig": {
