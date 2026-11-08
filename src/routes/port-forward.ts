@@ -82,8 +82,9 @@ async function updatePortForward(
 ): Promise<void> {
   const all = await getAllPortForwards(storage);
   const idx = all.findIndex((pf) => pf.id === id);
-  if (idx !== -1) {
-    all[idx] = { ...all[idx], ...patch };
+  const existing = all[idx];
+  if (existing) {
+    all[idx] = { ...existing, ...patch };
     await savePortForwards(storage, all);
   }
 }

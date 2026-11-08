@@ -38,6 +38,7 @@ function parseSSHConfig(content: string): SSHConfigHost[] {
     if (!match) continue;
 
     const [, key, value] = match;
+    if (key === undefined || value === undefined) continue;
     const keyLower = key.toLowerCase();
 
     if (keyLower === "host") {

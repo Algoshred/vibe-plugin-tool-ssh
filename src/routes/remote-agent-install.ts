@@ -152,8 +152,10 @@ async function runInstallation(
     status: RemoteAgentInstallStep["status"],
     message?: string,
   ) {
-    job.steps[stepIdx].status = status;
-    if (message) job.steps[stepIdx].message = message;
+    const step = job.steps[stepIdx];
+    if (!step) return;
+    step.status = status;
+    if (message) step.message = message;
     job.currentStep = stepIdx;
     emitProgress();
   }
@@ -535,7 +537,7 @@ async function runInstallation(
           });
 
           if (result.errors?.length) {
-            updateStep(8, "failed", result.errors[0].message);
+            updateStep(8, "failed", result.errors[0]?.message);
           } else {
             const agentRecord = result.data?.registerInstalledAgent;
             if (agentRecord) {
@@ -620,7 +622,7 @@ async function runInstallation(
 // ---------------------------------------------------------------------------
 
 export function createRemoteAgentInstallRoutes(hostServices: HostServices) {
-  const { storage, broadcast } = hostServices;
+  const { storage } = hostServices;
 
   return (
     new Elysia({ prefix: "/api/ssh/agent-install" })

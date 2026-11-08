@@ -10,7 +10,7 @@
 
 import { Elysia } from "elysia";
 import { Client } from "ssh2";
-import { createServer, type Server } from "node:net";
+import { createServer } from "node:net";
 import type { Subprocess } from "bun";
 import { expandPath } from "../utils/expand-path";
 import type {
@@ -144,12 +144,7 @@ async function findFreeRemotePort(
   end = 8080,
 ): Promise<number> {
   for (let port = start; port <= end; port++) {
-    const { code } = await sshExec(
-      client,
-      `ss -tlnp 2>/dev/null | grep -q ':${port} ' && echo taken || echo free`,
-    );
-    // If grep finds the port, code is 0 and output contains "taken".
-    // We just check the stdout text directly.
+    // If grep finds the port the output contains "taken"; check stdout text.
     const { stdout } = await sshExec(
       client,
       `ss -tlnp 2>/dev/null | grep -q ':${port} ' && echo taken || echo free`,

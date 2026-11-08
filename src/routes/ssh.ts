@@ -53,9 +53,13 @@ function sanitise(conn: SSHConnection): Omit<
 > & {
   privateKeyPath?: string;
 } {
-  const { password: _pw, privateKeyPath: _pk, ...rest } = conn;
   return {
-    ...rest,
+    id: conn.id,
+    serverName: conn.serverName,
+    host: conn.host,
+    port: conn.port,
+    username: conn.username,
+    createdAt: conn.createdAt,
     privateKeyPath: conn.privateKeyPath ? "***" : undefined,
   };
 }
@@ -325,6 +329,10 @@ export function createSSHRoutes(hostServices: HostServices) {
           }
 
           const conn = connections[idx];
+          if (!conn) {
+            set.status = 404;
+            return { error: "Connection not found" };
+          }
           if (patch.serverName !== undefined)
             conn.serverName = patch.serverName as string;
           if (patch.host !== undefined) conn.host = patch.host as string;
@@ -337,7 +345,7 @@ export function createSSHRoutes(hostServices: HostServices) {
             conn.password = patch.password as string;
 
           await saveConnections(storage, connections);
-          return { connection: sanitise(connections[idx]) };
+          return { connection: sanitise(conn) };
         } catch (error) {
           set.status = 500;
           return {
