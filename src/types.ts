@@ -100,11 +100,7 @@ export interface PortForward {
 }
 
 export type SSHTerminalStatus =
-  | "starting"
-  | "active"
-  | "stopping"
-  | "stopped"
-  | "error";
+  "starting" | "active" | "stopping" | "stopped" | "error";
 
 export interface SSHTerminalSession {
   id: string;
@@ -150,11 +146,7 @@ export interface TerminalInfo {
 
 export type InstallJobStatus = "pending" | "running" | "completed" | "failed";
 export type InstallStepStatus =
-  | "pending"
-  | "running"
-  | "completed"
-  | "failed"
-  | "skipped";
+  "pending" | "running" | "completed" | "failed" | "skipped";
 
 export interface RemoteAgentInstallStep {
   name: string;

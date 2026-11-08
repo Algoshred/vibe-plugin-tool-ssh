@@ -306,8 +306,7 @@ export const createPlugin: VibePluginFactory = (
             fetchData: async () => {
               const res = await apiFetch("/api/ssh/connections");
               const data = (await res.json()) as
-                | RecordWithId[]
-                | { connections?: RecordWithId[] };
+                RecordWithId[] | { connections?: RecordWithId[] };
               return Array.isArray(data) ? data : (data.connections ?? []);
             },
             plain: (rows) => {
@@ -353,8 +352,7 @@ export const createPlugin: VibePluginFactory = (
             fetchData: async () => {
               const res = await apiFetch("/api/ssh/terminal/sessions");
               const data = (await res.json()) as
-                | RecordWithId[]
-                | { sessions?: RecordWithId[] };
+                RecordWithId[] | { sessions?: RecordWithId[] };
               return Array.isArray(data) ? data : (data.sessions ?? []);
             },
             plain: (rows) => {
