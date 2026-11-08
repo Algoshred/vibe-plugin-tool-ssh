@@ -188,15 +188,6 @@ export interface CreateConnectionBody {
   password?: string;
 }
 
-export interface UpdateConnectionBody {
-  serverName?: string;
-  host?: string;
-  port?: number;
-  username?: string;
-  privateKeyPath?: string;
-  password?: string;
-}
-
 export interface ExecuteCommandBody {
   connectionId: string;
   command: string;
